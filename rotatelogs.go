@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lestrrat-go/file-rotatelogs/internal/fileutil"
+	"github.com/ks3sdklib/file-rotatelogs/internal/fileutil"
 	strftime "github.com/lestrrat-go/strftime"
 	"github.com/pkg/errors"
 )
@@ -44,6 +44,7 @@ func New(p string, options ...Option) (*RotateLogs, error) {
 	var maxAge time.Duration
 	var handler Handler
 	var forceNewFile bool
+	var fixedFile string
 
 	for _, o := range options {
 		switch o.Name() {
@@ -72,6 +73,8 @@ func New(p string, options ...Option) (*RotateLogs, error) {
 			handler = o.Value().(Handler)
 		case optkeyForceNewFile:
 			forceNewFile = true
+		case optkeyFixedFile:
+			fixedFile = o.Value().(string)
 		}
 	}
 
@@ -95,6 +98,7 @@ func New(p string, options ...Option) (*RotateLogs, error) {
 		rotationSize:  rotationSize,
 		rotationCount: rotationCount,
 		forceNewFile:  forceNewFile,
+		fixedFile:     fixedFile,
 	}, nil
 }
 
@@ -124,6 +128,9 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 	// to log to, which may be newer than rl.currentFilename
 	baseFn := fileutil.GenerateFn(rl.pattern, rl.clock, rl.rotationTime)
 	filename := baseFn
+	if rl.fixedFile != "" && rl.curBaseFn != "" {
+		filename = rl.curBaseFn
+	}
 	var forceNewFile bool
 
 	fi, err := os.Stat(rl.curFn)
@@ -137,7 +144,7 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 		generation = 0
 		// even though this is the first write after calling New(),
 		// check if a new file needs to be created
-		if rl.forceNewFile {
+		if rl.forceNewFile || rl.fixedFile != "" {
 			forceNewFile = true
 		}
 	} else {
@@ -146,7 +153,9 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 			return rl.outFh, nil
 		}
 		forceNewFile = true
-		generation++
+		if rl.fixedFile == "" {
+			generation++
+		}
 	}
 	if forceNewFile {
 		// A new file has been requested. Instead of just using the
@@ -161,10 +170,19 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 			}
 			if _, err := os.Stat(name); err != nil {
 				filename = name
-
+				if rl.fixedFile != "" {
+					os.Rename(rl.fixedFile, filename)
+				}
 				break
 			}
 			generation++
+		}
+	}
+
+	if rl.fixedFile != "" {
+		filename = rl.fixedFile
+		if baseFn != rl.curBaseFn {
+			generation = 0
 		}
 	}
 
