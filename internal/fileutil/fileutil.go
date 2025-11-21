@@ -1,6 +1,7 @@
 package fileutil
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -37,6 +38,41 @@ func GenerateFn(pattern *strftime.Strftime, clock interface{ Now() time.Time }, 
 	}
 
 	return pattern.FormatString(base)
+}
+
+func GenerateFixedFn(pattern *strftime.Strftime, fixedFile string, rotationTime time.Duration) string {
+	info, err := os.Stat(fixedFile)
+	if err != nil {
+		return ""
+	}
+	now := info.ModTime()
+	var base time.Time
+	if now.Location() != time.UTC {
+		base = time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), now.Nanosecond(), time.UTC)
+		base = base.Truncate(rotationTime)
+		base = time.Date(base.Year(), base.Month(), base.Day(), base.Hour(), base.Minute(), base.Second(), base.Nanosecond(), base.Location())
+	} else {
+		base = now.Truncate(rotationTime)
+	}
+
+	return pattern.FormatString(base)
+}
+
+func RenameFile(oldName, newName string) {
+	var name string
+	var generation int
+	for {
+		if generation == 0 {
+			name = newName
+		} else {
+			name = fmt.Sprintf("%s.%d", newName, generation)
+		}
+		if _, err := os.Stat(name); err != nil {
+			os.Rename(oldName, name)
+			break
+		}
+		generation++
+	}
 }
 
 // CreateFile creates a new file in the given path, creating parent directories

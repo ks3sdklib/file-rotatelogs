@@ -119,6 +119,10 @@ func (rl *RotateLogs) Write(p []byte) (n int, err error) {
 	return out.Write(p)
 }
 
+func (rl *RotateLogs) isFixed() bool {
+	return rl.fixedFile != ""
+}
+
 // must be locked during this operation
 func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames bool) (io.Writer, error) {
 	generation := rl.generation
@@ -128,8 +132,15 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 	// to log to, which may be newer than rl.currentFilename
 	baseFn := fileutil.GenerateFn(rl.pattern, rl.clock, rl.rotationTime)
 	filename := baseFn
-	if rl.fixedFile != "" && rl.curBaseFn != "" {
-		filename = rl.curBaseFn
+	if rl.isFixed() {
+		if rl.curBaseFn != "" {
+			filename = rl.curBaseFn
+		} else {
+			fixedFn := fileutil.GenerateFixedFn(rl.pattern, rl.fixedFile, rl.rotationTime)
+			if baseFn != fixedFn {
+				fileutil.RenameFile(rl.fixedFile, fixedFn)
+			}
+		}
 	}
 	var forceNewFile bool
 
@@ -144,7 +155,7 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 		generation = 0
 		// even though this is the first write after calling New(),
 		// check if a new file needs to be created
-		if rl.forceNewFile || rl.fixedFile != "" {
+		if rl.forceNewFile || (rl.isFixed() && rl.curBaseFn != "") {
 			forceNewFile = true
 		}
 	} else {
@@ -179,7 +190,7 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 		}
 	}
 
-	if rl.fixedFile != "" {
+	if rl.isFixed() {
 		filename = rl.fixedFile
 		if baseFn != rl.curBaseFn {
 			generation = 0
