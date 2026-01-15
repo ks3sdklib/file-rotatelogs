@@ -138,6 +138,7 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 		} else {
 			fixedFn := fileutil.GenerateFixedFn(rl.pattern, rl.fixedFile, rl.rotationTime)
 			if baseFn != fixedFn {
+				rl.outFh.Close()
 				fileutil.RenameFile(rl.fixedFile, fixedFn)
 			}
 		}
@@ -182,6 +183,7 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 			if _, err := os.Stat(name); err != nil {
 				filename = name
 				if rl.fixedFile != "" {
+					rl.outFh.Close()
 					os.Rename(rl.fixedFile, filename)
 				}
 				break
