@@ -145,7 +145,7 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 	}
 	var forceNewFile bool
 
-	fi, err := os.Stat(rl.curFn)
+	fi, err := rl.outFh.Stat()
 	sizeRotation := false
 	if err == nil && rl.rotationSize > 0 && rl.rotationSize <= fi.Size() {
 		forceNewFile = true
@@ -169,6 +169,38 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 			generation++
 		}
 	}
+
+	if rl.isFixed() {
+		lockFn := rl.fixedFile + `_size_rotate_lock`
+		lockFd, err := os.OpenFile(lockFn, os.O_CREATE|os.O_EXCL, 0644)
+		if err == nil {
+			var guard cleanupGuard
+			guard.fn = func() {
+				lockFd.Close()
+				os.Remove(lockFn)
+			}
+			defer guard.Run()
+		} else {
+			// 另一个进程正在进行基于大小的轮转
+			if os.IsExist(err) {
+				// 等待另一个进程完成轮转，最多重试10次，每次等待10ms
+				for i := 0; i < 10; i++ {
+					time.Sleep(10 * time.Millisecond)
+					if _, err := os.Stat(lockFn); os.IsNotExist(err) {
+						// 锁文件已删除，说明另一个进程已完成轮转
+						break
+					}
+				}
+				forceNewFile = false
+			}
+		}
+
+		stat, err := os.Stat(rl.fixedFile)
+		if err == nil && rl.rotationSize > stat.Size() {
+			forceNewFile = false
+		}
+	}
+
 	if forceNewFile {
 		// A new file has been requested. Instead of just using the
 		// regular strftime pattern, we create a new file name using
@@ -288,7 +320,9 @@ func (rl *RotateLogs) rotateNolock(filename string) error {
 	lockfn := filename + `_lock`
 	fh, err := os.OpenFile(lockfn, os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
-		// Can't lock, just return
+		if os.IsExist(err) {
+			return nil
+		}
 		return err
 	}
 
