@@ -193,7 +193,16 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 						break
 					}
 				}
-				forceNewFile = false
+				// 另一个进程已完成分割，重新打开当前文件并返回
+				fh, err := fileutil.CreateFile(rl.fixedFile)
+				if err != nil {
+					return nil, errors.Wrapf(err, `failed to open file %v`, rl.fixedFile)
+				}
+				rl.outFh.Close()
+				rl.outFh = fh
+				rl.curBaseFn = baseFn
+				rl.curFn = rl.fixedFile
+				return fh, nil
 			}
 		}
 
