@@ -182,7 +182,9 @@ func (rl *RotateLogs) getWriterNolock(bailOnRotateFail, useGenerationalNames boo
 			defer guard.Run()
 		} else {
 			// 另一个进程正在进行基于大小的轮转
-			if os.IsExist(err) {
+			// Linux: 返回 EEXIST (文件已存在)
+			// Windows: 返回 ACCESS_DENIED (无法判断是否存在，直接拒绝访问)
+			if os.IsExist(err) || os.IsPermission(err) {
 				// 等待另一个进程完成轮转，最多重试10次，每次等待10ms
 				for i := 0; i < 10; i++ {
 					time.Sleep(10 * time.Millisecond)
@@ -320,7 +322,9 @@ func (rl *RotateLogs) rotateNolock(filename string) error {
 	lockfn := filename + `_lock`
 	fh, err := os.OpenFile(lockfn, os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
-		if os.IsExist(err) {
+		// Linux: 返回 EEXIST (文件已存在)
+		// Windows: 返回 ACCESS_DENIED (无法判断是否存在，直接拒绝访问)
+		if os.IsExist(err) || os.IsPermission(err) {
 			return nil
 		}
 		return err
